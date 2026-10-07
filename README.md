@@ -39,6 +39,8 @@ If your app is a confidential client (Web App), also set its secret in the envir
 
 X's page "You weren't able to give access to the App" usually means one of these:
 
+0. The settings were never saved. If the app shows a **Client Secret**, it is a confidential (Web App) client, so the
+   Native App choice and callback did not save: edit User authentication settings again and click Save.
 1. The app's **App permissions** are not **Read and write**, or the change was not saved. The plain run asks for read
    access only and `--apply` adds `follows.write`, so if the plain run logs in but `--apply` fails, this is it.
 2. The `--client-id` belongs to a different app than the one you configured. Use the **OAuth 2.0 Client ID** under
@@ -47,6 +49,18 @@ X's page "You weren't able to give access to the App" usually means one of these
 4. The app is not attached to a project, or the developer account has no API access or credits yet.
 
 After changing settings, save them and try again; X can take a minute to apply them.
+
+## Login without the browser (your own account)
+
+In the developer console, **Keys and tokens > OAuth 2.0 Keys > Access Token > Generate** makes a token for the
+account that owns the app. Put it in the environment for one command; it is never saved:
+
+```bash
+X_ACCESS_TOKEN=... node unfollow.mjs
+```
+
+The token needs `follows.write` for `--apply`, so the app permissions must be **Read and write** when you generate
+it. Console tokens expire after about two hours; generate a fresh one for each session.
 
 ## Use
 

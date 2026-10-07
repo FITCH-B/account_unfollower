@@ -7,6 +7,8 @@
 //   node unfollow.mjs --client-id <id> --apply         unfollow up to today's cap from the saved plan
 //   options: --keep keep.txt  --skip-verified  --max-per-day 50  --refresh  --port 8723  --price-per-read 0.01  --yes
 //   a confidential app also needs X_CLIENT_SECRET in the environment.
+//   or skip the browser login: set X_ACCESS_TOKEN to an OAuth 2.0 user token for your own account (the console's
+//   "OAuth 2.0 Keys > Access Token > Generate"); then --client-id is not needed.
 import http from 'node:http';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -36,7 +38,7 @@ export function parseArgs(argv) {
     else if (a === '--price-per-read') o.pricePerRead = Number(v());
     else throw Error('Unknown option ' + a);
   }
-  if (!o.clientId) throw Error('Pass --client-id <your X app OAuth 2.0 client ID> (see README).');
+  if (!o.clientId && !process.env.X_ACCESS_TOKEN) throw Error('Pass --client-id <your X app OAuth 2.0 client ID>, or set X_ACCESS_TOKEN (see README).');
   if (!Number.isInteger(o.maxPerDay) || o.maxPerDay < 1 || o.maxPerDay > HARD_DAILY_MAX) throw Error(`--max-per-day must be 1 to ${HARD_DAILY_MAX}.`);
   return o;
 }
@@ -140,7 +142,9 @@ async function confirm(question, yes) {
 
 async function main() {
   const o = parseArgs(process.argv.slice(2));
-  const token = await login(o);
+  // A token generated in the developer console for your own account skips the browser login. It is read from the
+  // environment only and never written anywhere.
+  const token = process.env.X_ACCESS_TOKEN ? process.env.X_ACCESS_TOKEN.trim() : await login(o);
   const x = makeClient(token);
   const me = await x.me();
   console.log(`Logged in as @${me.username}: following ${me.public_metrics.following_count}, followers ${me.public_metrics.followers_count}.`);

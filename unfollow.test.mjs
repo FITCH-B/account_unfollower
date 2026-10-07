@@ -25,7 +25,8 @@ test('keep-list accepts @handles, bare handles and ids, case-insensitive, with c
 });
 
 test('options require a client id and cap the daily maximum', () => {
-  assert.throws(() => parseArgs([]), /client-id/);
+  delete process.env.X_ACCESS_TOKEN;assert.throws(() => parseArgs([]), /client-id/);
+  process.env.X_ACCESS_TOKEN = 'console-token';assert.equal(parseArgs([]).clientId, null, 'a console token needs no client id');delete process.env.X_ACCESS_TOKEN;
   assert.throws(() => parseArgs(['--client-id', 'x', '--max-per-day', '1000']), /max-per-day/);
   assert.throws(() => parseArgs(['--client-id', 'x', '--bogus']), /Unknown option/);
   const o = parseArgs(['--client-id', 'abc', '--apply', '--skip-verified', '--max-per-day', '30']);
