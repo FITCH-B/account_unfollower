@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// unfollow-nonfollowers: unfollow X accounts that don't follow you back, slowly and with a dry run first.
+// account_unfollower: unfollow X accounts that don't follow you back, slowly and with a dry run first.
 // Uses YOUR OWN X developer app and YOUR login (OAuth 2.0 with PKCE). No dependencies; Node.js 18+.
 // The access token lives in memory for one run only. It is never written to disk or sent anywhere but api.x.com.
 //

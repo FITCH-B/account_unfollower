@@ -1,4 +1,4 @@
-# unfollow-nonfollowers
+# account_unfollower
 
 Unfollow the X accounts you follow that don't follow you back. Slowly, with a dry run first, from your own X
 developer app. One file, no dependencies, Node.js 18 or newer.
