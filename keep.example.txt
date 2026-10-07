@@ -1,0 +1,3 @@
+# Accounts never to unfollow. One per line: @handle, handle, or numeric user id.
+@jackbutcher
+# 12345678
