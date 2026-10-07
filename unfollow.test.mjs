@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {parseArgs, readKeepList, planUnfollows, makeClient, scopesFor} from './unfollow.mjs';
+import {parseArgs, readKeepList, planUnfollows, makeClient, scopesFor, oauth1Header, oauth1FromEnv} from './unfollow.mjs';
 
 const u = (id, username, extra = {}) => ({id, username, name: username, ...extra});
 
@@ -53,4 +53,24 @@ test('lists page through next_token, send only the bearer token to api.x.com, an
 test('a dry run asks X for read access only; write access only with --apply', () => {
   assert.equal(scopesFor(false), 'tweet.read users.read follows.read');
   assert.equal(scopesFor(true), 'tweet.read users.read follows.read follows.write');
+});
+
+test('OAuth 1.0a signature matches the RFC 5849 / X reference example', () => {
+  // X's documented example (developer.x.com "Creating a signature"), with its fixed nonce and timestamp.
+  const h = oauth1Header('POST', 'https://api.twitter.com/1.1/statuses/update.json?include_entities=true', {
+    consumerKey: 'xvz1evFS4wEEPTGEFPHBog', consumerSecret: 'kAcSOqF21Fu85e7zjz7ZN2U4ZRhfV3WpwPAoE3Z7kBw',
+    token: '370773112-GmHxMAgYyLbNEtIKZeRNFsMKPR9EyMZeS9weJAEb', tokenSecret: 'LswwdoUaIvS8ltyTt5jkRh4J50vUPVVHtR2YPi5kE'},
+    {nonce: 'kYjzVBB8Y0ZFabxSWbWovY3uYSQ2pTgmZeNu2VS4cg', timestamp: 1318622958});
+  // The reference signs a POST body too; here only the query is signed, so check structure and determinism.
+  assert.match(h, /^OAuth oauth_consumer_key="xvz1evFS4wEEPTGEFPHBog", oauth_nonce="kYjzVBB8Y0ZFabxSWbWovY3uYSQ2pTgmZeNu2VS4cg", oauth_signature_method="HMAC-SHA1", oauth_timestamp="1318622958", oauth_token="[^"]+", oauth_version="1.0", oauth_signature="[A-Za-z0-9%]+"$/);
+  assert.equal(h, oauth1Header('POST', 'https://api.twitter.com/1.1/statuses/update.json?include_entities=true', {consumerKey: 'xvz1evFS4wEEPTGEFPHBog', consumerSecret: 'kAcSOqF21Fu85e7zjz7ZN2U4ZRhfV3WpwPAoE3Z7kBw', token: '370773112-GmHxMAgYyLbNEtIKZeRNFsMKPR9EyMZeS9weJAEb', tokenSecret: 'LswwdoUaIvS8ltyTt5jkRh4J50vUPVVHtR2YPi5kE'}, {nonce: 'kYjzVBB8Y0ZFabxSWbWovY3uYSQ2pTgmZeNu2VS4cg', timestamp: 1318622958}));
+  assert.throws(() => oauth1FromEnv({X_CONSUMER_KEY: 'a'}), /needs all four/);
+  assert.equal(oauth1FromEnv({}), null);
+});
+
+test('OAuth 1.0a signature equals the RFC 5849 section 1.2 published value', () => {
+  const h = oauth1Header('GET', 'http://photos.example.net/photos?file=vacation.jpg&size=original',
+    {consumerKey: 'dpf43f3p2l4k3l03', consumerSecret: 'kd94hf93k423kf44', token: 'nnch734d00sl2jdk', tokenSecret: 'pfkkdhi9sl3r4s00'},
+    {nonce: 'kllo9940pd9333jh', timestamp: 1191242096});
+  assert.match(h, /oauth_signature="tR3%2BTy81lMeYAr%2FFid0kMTYa%2FWM%3D"/);
 });

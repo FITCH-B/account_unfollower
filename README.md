@@ -62,6 +62,20 @@ X_ACCESS_TOKEN=... node unfollow.mjs
 The token needs `follows.write` for `--apply`, so the app permissions must be **Read and write** when you generate
 it. Console tokens expire after about two hours; generate a fresh one for each session.
 
+## Login with OAuth 1.0a keys (most reliable for unfollowing)
+
+Console-generated OAuth 2.0 tokens may not include unfollow permission (X then answers 403). The OAuth 1.0 keys work:
+in **Keys and tokens**, copy the **Consumer Key** and **Secret**, and generate the **Access Token** and **Secret** under
+OAuth 1.0 Keys (shown as "Read and write" once the app has that permission). Pass all four in the environment for one
+command; they are never saved:
+
+```bash
+X_CONSUMER_KEY=... X_CONSUMER_SECRET=... X_OAUTH1_TOKEN=... X_OAUTH1_TOKEN_SECRET=... node unfollow.mjs --apply
+```
+
+These keys do not expire on their own. Treat them like a password: never paste them anywhere public, and regenerate
+them in the console if they leak.
+
 ## Use
 
 ```bash

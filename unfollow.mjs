@@ -38,7 +38,7 @@ export function parseArgs(argv) {
     else if (a === '--price-per-read') o.pricePerRead = Number(v());
     else throw Error('Unknown option ' + a);
   }
-  if (!o.clientId && !process.env.X_ACCESS_TOKEN) throw Error('Pass --client-id <your X app OAuth 2.0 client ID>, or set X_ACCESS_TOKEN (see README).');
+  if (!o.clientId && !process.env.X_ACCESS_TOKEN && !oauth1FromEnv()) throw Error('Pass --client-id <your X app OAuth 2.0 client ID>, or set X_ACCESS_TOKEN (see README).');
   if (!Number.isInteger(o.maxPerDay) || o.maxPerDay < 1 || o.maxPerDay > HARD_DAILY_MAX) throw Error(`--max-per-day must be 1 to ${HARD_DAILY_MAX}.`);
   return o;
 }
@@ -68,14 +68,32 @@ export function planUnfollows(following, followers, {keep = {ids: new Set(), han
   return {unfollow: out, kept};
 }
 
-export function makeClient(token, {fetcher = fetch, log = console.log} = {}) {
+// OAuth 1.0a user context (HMAC-SHA1, RFC 5849): the developer console's Consumer Keys plus the account's Access
+// Token and Secret. X accepts it for unfollowing, and the console shows these keys "Read and write".
+const pct = s => encodeURIComponent(s).replace(/[!'()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+export function oauth1Header(method, url, k, {nonce = crypto.randomBytes(16).toString('hex'), timestamp = Math.floor(Date.now() / 1000)} = {}) {
+  const u = new URL(url), params = {oauth_consumer_key: k.consumerKey, oauth_nonce: nonce, oauth_signature_method: 'HMAC-SHA1', oauth_timestamp: String(timestamp), oauth_token: k.token, oauth_version: '1.0'};
+  const all = [...Object.entries(params), ...u.searchParams.entries()].map(([a, b]) => [pct(a), pct(b)]).sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[1] < b[1] ? -1 : 1);
+  const base = [method.toUpperCase(), pct(u.origin + u.pathname), pct(all.map(([a, b]) => a + '=' + b).join('&'))].join('&');
+  const sig = crypto.createHmac('sha1', pct(k.consumerSecret) + '&' + pct(k.tokenSecret)).update(base).digest('base64');
+  return 'OAuth ' + Object.entries({...params, oauth_signature: sig}).map(([a, b]) => pct(a) + '="' + pct(b) + '"').join(', ');
+}
+export function oauth1FromEnv(env = process.env) {
+  const k = {consumerKey: env.X_CONSUMER_KEY, consumerSecret: env.X_CONSUMER_SECRET, token: env.X_OAUTH1_TOKEN, tokenSecret: env.X_OAUTH1_TOKEN_SECRET};
+  const set = Object.values(k).filter(Boolean).length;
+  if (set && set < 4) throw Error('OAuth 1.0a needs all four: X_CONSUMER_KEY, X_CONSUMER_SECRET, X_OAUTH1_TOKEN, X_OAUTH1_TOKEN_SECRET.');
+  return set ? k : null;
+}
+export function makeClient(token, {fetcher = fetch, log = console.log, oauth1 = null} = {}) {
   async function call(method, url) {
-    const r = await fetcher(url, {method, headers: {Authorization: 'Bearer ' + token}, redirect: 'manual', signal: AbortSignal.timeout(20000)});
+    const auth = oauth1 ? oauth1Header(method, url, oauth1) : 'Bearer ' + token;
+    const r = await fetcher(url, {method, headers: {Authorization: auth}, redirect: 'manual', signal: AbortSignal.timeout(20000)});
     if (r.status === 429) {
       const reset = Number(r.headers.get('x-rate-limit-reset')) * 1000;
       throw Object.assign(Error('X rate limit reached' + (reset ? ', resets at ' + new Date(reset).toLocaleTimeString() : '')), {rateLimited: true});
     }
     if (r.status === 402) throw Error('X answered 402 Payment Required: this developer account has no API credits. Add credits in the X developer console (Billing), then run again. Nothing was charged.');
+    if (r.status === 403 && method === 'DELETE') throw Error('X answered 403 to the unfollow: this login lacks unfollow permission (follows.write). Use the OAuth 1.0a keys (see README) or a browser login with --client-id, with the app set to Read and write.');
     if (r.status === 401) throw Error('X answered 401: the token is invalid or expired. Log in again (console tokens last about two hours).');
     if (!r.ok) throw Error(`X answered HTTP ${r.status} for ${method} ${new URL(url).pathname}`);
     return method === 'DELETE' ? r.json().catch(() => ({})) : r.json();
@@ -146,8 +164,9 @@ async function main() {
   const o = parseArgs(process.argv.slice(2));
   // A token generated in the developer console for your own account skips the browser login. It is read from the
   // environment only and never written anywhere.
-  const token = process.env.X_ACCESS_TOKEN ? process.env.X_ACCESS_TOKEN.trim() : await login(o);
-  const x = makeClient(token);
+  const oauth1 = oauth1FromEnv();
+  const token = oauth1 ? null : process.env.X_ACCESS_TOKEN ? process.env.X_ACCESS_TOKEN.trim() : await login(o);
+  const x = makeClient(token, {oauth1});
   const me = await x.me();
   console.log(`Logged in as @${me.username}: following ${me.public_metrics.following_count}, followers ${me.public_metrics.followers_count}.`);
   let s = loadState();
