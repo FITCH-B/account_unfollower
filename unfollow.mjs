@@ -5,7 +5,9 @@
 //
 //   node unfollow.mjs --client-id <id>                 log in, read lists, write the plan (dry run, unfollows nobody)
 //   node unfollow.mjs --client-id <id> --apply         unfollow up to today's cap from the saved plan
-//   options: --keep keep.txt  --skip-verified  --max-per-day 50  --refresh  --port 8723  --price-per-read 0.01  --yes
+//   options: --keep keep.txt  --skip-verified  --max-per-day 50  --delay-min 20  --delay-max 60  --refresh  --port 8723
+//            --price-per-read 0.01  --yes
+//   with --apply and no --max-per-day / --delay-* flags, it asks for both (Enter keeps 50 and 20-60 s).
 //   a confidential app also needs X_CLIENT_SECRET in the environment.
 //   or skip the browser login: set X_ACCESS_TOKEN to an OAuth 2.0 user token for your own account (the console's
 //   "OAuth 2.0 Keys > Access Token > Generate"); then --client-id is not needed.
@@ -22,9 +24,10 @@ const API = 'https://api.x.com/2';
 export const scopesFor = apply => 'tweet.read users.read follows.read' + (apply ? ' follows.write' : '');
 const STATE_FILE = 'unfollow-state.json';
 const HARD_DAILY_MAX = 400;   // X's own limit is 50 unfollows per 15 minutes; bulk churn risks restrictions.
+const MIN_DELAY = 5;          // seconds; below ~18 s on average you will hit X's 50-per-15-minutes limit.
 
 export function parseArgs(argv) {
-  const o = {maxPerDay: 50, port: 8723, pricePerRead: 0.01, keep: null, apply: false, refresh: false, skipVerified: false, yes: false, clientId: null};
+  const o = {maxPerDay: 50, delayMin: 20, delayMax: 60, asked: {count: false, delay: false}, port: 8723, pricePerRead: 0.01, keep: null, apply: false, refresh: false, skipVerified: false, yes: false, clientId: null};
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i], v = () => argv[++i];
     if (a === '--client-id') o.clientId = v();
@@ -33,16 +36,32 @@ export function parseArgs(argv) {
     else if (a === '--skip-verified') o.skipVerified = true;
     else if (a === '--yes') o.yes = true;
     else if (a === '--keep') o.keep = v();
-    else if (a === '--max-per-day') o.maxPerDay = Number(v());
+    else if (a === '--max-per-day') {o.maxPerDay = Number(v());o.asked.count = true;}
+    else if (a === '--delay-min') {o.delayMin = Number(v());o.asked.delay = true;}
+    else if (a === '--delay-max') {o.delayMax = Number(v());o.asked.delay = true;}
     else if (a === '--port') o.port = Number(v());
     else if (a === '--price-per-read') o.pricePerRead = Number(v());
     else throw Error('Unknown option ' + a);
   }
   if (!o.clientId && !process.env.X_ACCESS_TOKEN && !oauth1FromEnv()) throw Error('Pass --client-id <your X app OAuth 2.0 client ID>, or set X_ACCESS_TOKEN (see README).');
   if (!Number.isInteger(o.maxPerDay) || o.maxPerDay < 1 || o.maxPerDay > HARD_DAILY_MAX) throw Error(`--max-per-day must be 1 to ${HARD_DAILY_MAX}.`);
+  checkDelays(o.delayMin, o.delayMax);
   return o;
 }
 
+export function checkDelays(min, max) {
+  if (!Number.isFinite(min) || !Number.isFinite(max) || min < MIN_DELAY || max < min || max > 3600) throw Error(`Delays must satisfy ${MIN_DELAY} <= min <= max <= 3600 seconds.`);
+}
+// "30" or "15-45" style answers; empty keeps the default.
+export function parseCount(answer, def) {
+  const a = String(answer || '').trim(); if (!a) return def;
+  const n = Number(a); if (!Number.isInteger(n) || n < 1 || n > HARD_DAILY_MAX) throw Error(`Enter a whole number from 1 to ${HARD_DAILY_MAX}.`); return n;
+}
+export function parseDelay(answer, [dmin, dmax]) {
+  const a = String(answer || '').trim(); if (!a) return [dmin, dmax];
+  const m = a.match(/^(\d+(?:\.\d+)?)\s*(?:-\s*(\d+(?:\.\d+)?))?$/); if (!m) throw Error('Enter seconds like 30 or 20-60.');
+  const min = Number(m[1]), max = m[2] ? Number(m[2]) : min; checkDelays(min, max); return [min, max];
+}
 // Keep-list: one @handle or numeric user id per line; # starts a comment.
 export function readKeepList(file) {
   if (!file) return {ids: new Set(), handles: new Set()};
@@ -154,6 +173,10 @@ const loadState = () => {try {return JSON.parse(fs.readFileSync(STATE_FILE, 'utf
 const saveState = s => fs.writeFileSync(STATE_FILE, JSON.stringify(s, null, 2) + '\n');
 const csv = rows => 'id,username,name\n' + rows.map(r => [r.id, r.username, JSON.stringify(r.name || '')].join(',')).join('\n') + '\n';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function ask(question) {
+  const rl = readline.createInterface({input: process.stdin, output: process.stdout});
+  try {return await rl.question(question);} finally {rl.close();}
+}
 async function confirm(question, yes) {
   if (yes) return true;
   const rl = readline.createInterface({input: process.stdin, output: process.stdout});
@@ -189,16 +212,22 @@ async function main() {
     if (!o.apply || fresh) return;
   }
 
-  const used = s.perDay[today()] || 0, budget = Math.min(o.maxPerDay - used, s.todo.length);
-  if (budget <= 0) return console.log(s.todo.length ? `Today's cap (${o.maxPerDay}) is used. Run again tomorrow.` : 'Plan complete. Nothing left to unfollow.');
-  if (!await confirm(`Unfollow ${budget} account(s) now as @${me.username}, 20-60 s apart?`, o.yes)) return console.log('Stopped.');
+  // Ask for today's amount and the spacing unless they came as flags (or --yes keeps the defaults).
+  const used = s.perDay[today()] || 0;
+  if (!o.yes && !o.asked.count) for (;;) {try {o.maxPerDay = parseCount(await ask(`How many to unfollow today? (${s.todo.length} left in the plan, ${used} done today) [${o.maxPerDay}]: `), o.maxPerDay);break;} catch (e) {console.log(e.message);}}
+  if (!o.yes && !o.asked.delay) for (;;) {try {[o.delayMin, o.delayMax] = parseDelay(await ask(`Seconds between unfollows, as N or MIN-MAX [${o.delayMin}-${o.delayMax}]: `), [o.delayMin, o.delayMax]);break;} catch (e) {console.log(e.message);}}
+  if ((o.delayMin + o.delayMax) / 2 < 18) console.log("Note: averaging under 18 s between unfollows will hit X's limit of 50 per 15 minutes; the run stops there and saves progress.");
+  const budget = Math.min(o.maxPerDay - used, s.todo.length);
+  if (budget <= 0) return console.log(s.todo.length ? `Today's cap (${o.maxPerDay}) is used. Run again tomorrow, or choose a higher number.` : 'Plan complete. Nothing left to unfollow.');
+  const span = o.delayMin === o.delayMax ? `${o.delayMin} s` : `${o.delayMin}-${o.delayMax} s`;
+  if (!await confirm(`Unfollow ${budget} account(s) now as @${me.username}, ${span} apart?`, o.yes)) return console.log('Stopped.');
   for (let i = 0; i < budget; i++) {
     const u = s.todo[0];
     try {await x.unfollow(me.id, u.id);}
     catch (e) {console.log(`Stopped: ${e.message}. Progress is saved; run again later.`);break;}
     s.todo.shift();s.done.push({...u, at: new Date().toISOString()});s.perDay[today()] = (s.perDay[today()] || 0) + 1;saveState(s);
     console.log(`  unfollowed @${u.username} (${s.done.length} done, ${s.todo.length} left)`);
-    if (i < budget - 1) await sleep(20000 + Math.random() * 40000);
+    if (i < budget - 1) await sleep(1000 * (o.delayMin + Math.random() * (o.delayMax - o.delayMin)));
   }
   console.log('Done for now. Progress is in ' + STATE_FILE + '.');
 }

@@ -9,7 +9,7 @@ developer app. One file, no dependencies, Node.js 18 or newer.
    never written to disk and never sent anywhere except `api.x.com`.
 2. It reads your following and followers lists and writes the plan: everyone you follow who does not follow you,
    minus your keep-list. Nothing is unfollowed. Review `unfollow-plan.csv`.
-3. With `--apply` it unfollows up to a daily cap (default 50), 20 to 60 seconds apart, and stops at the first error or
+3. With `--apply` it asks how many to unfollow today (default 50) and how far apart (default 20 to 60 seconds), then unfollows, and stops at the first error or
    rate limit. Progress is saved in `unfollow-state.json`, so you can run it again tomorrow and it continues.
 
 ## Read this first
@@ -93,7 +93,8 @@ node unfollow.mjs --client-id YOUR_CLIENT_ID --apply
 |---|---|
 | `--keep file.txt` | Never unfollow these. One `@handle`, handle or numeric user id per line; `#` comments. |
 | `--skip-verified` | Never unfollow verified accounts. |
-| `--max-per-day 50` | Unfollows per calendar day (UTC), 1 to 400. |
+| `--max-per-day 50` | Unfollows per calendar day (UTC), 1 to 400. Without it, `--apply` asks (Enter keeps 50). |
+| `--delay-min 20` `--delay-max 60` | Seconds between unfollows (random in that range). Without them, `--apply` asks: `30` or `20-60` (Enter keeps 20-60). Minimum 5; averaging under 18 s hits X's 50-per-15-minutes limit. |
 | `--refresh` | Read the lists again and rebuild the plan. |
 | `--port 8723` | Local port for the login callback. Must match the app's callback URI. |
 | `--price-per-read 0.01` | Your plan's price per account read, for the estimate. |

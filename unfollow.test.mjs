@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {parseArgs, readKeepList, planUnfollows, makeClient, scopesFor, oauth1Header, oauth1FromEnv} from './unfollow.mjs';
+import {parseArgs, readKeepList, planUnfollows, makeClient, scopesFor, oauth1Header, oauth1FromEnv, parseCount, parseDelay} from './unfollow.mjs';
 
 const u = (id, username, extra = {}) => ({id, username, name: username, ...extra});
 
@@ -73,4 +73,14 @@ test('OAuth 1.0a signature equals the RFC 5849 section 1.2 published value', () 
     {consumerKey: 'dpf43f3p2l4k3l03', consumerSecret: 'kd94hf93k423kf44', token: 'nnch734d00sl2jdk', tokenSecret: 'pfkkdhi9sl3r4s00'},
     {nonce: 'kllo9940pd9333jh', timestamp: 1191242096});
   assert.match(h, /oauth_signature="tR3%2BTy81lMeYAr%2FFid0kMTYa%2FWM%3D"/);
+});
+
+test('amount and spacing prompts: Enter keeps defaults, numbers and ranges are validated', () => {
+  assert.equal(parseCount('', 50), 50);assert.equal(parseCount(' 120 ', 50), 120);
+  for (const bad of ['0', '401', '2.5', 'abc']) assert.throws(() => parseCount(bad, 50), /whole number/);
+  assert.deepEqual(parseDelay('', [20, 60]), [20, 60]);assert.deepEqual(parseDelay('30', [20, 60]), [30, 30]);assert.deepEqual(parseDelay('15 - 45', [20, 60]), [15, 45]);
+  for (const bad of ['2', '60-20', '10-5000', 'fast']) assert.throws(() => parseDelay(bad, [20, 60]));
+  const o = parseArgs(['--client-id', 'x', '--max-per-day', '80', '--delay-min', '25', '--delay-max', '40']);
+  assert.deepEqual([o.maxPerDay, o.delayMin, o.delayMax, o.asked.count, o.asked.delay], [80, 25, 40, true, true], 'flags skip the questions');
+  assert.throws(() => parseArgs(['--client-id', 'x', '--delay-min', '50', '--delay-max', '10']), /Delays/);
 });
