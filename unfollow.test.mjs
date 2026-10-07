@@ -46,6 +46,8 @@ test('lists page through next_token, send only the bearer token to api.x.com, an
   await assert.rejects(limited.unfollow('1', '2'), e => e.rateLimited === true);
   const denied = makeClient('T', {log: () => {}, fetcher: async () => new Response('', {status: 403})});
   await assert.rejects(denied.list('1', 'followers'), /HTTP 403/);
+  const unpaid = makeClient('T', {log: () => {}, fetcher: async () => new Response('', {status: 402})});
+  await assert.rejects(unpaid.list('1', 'following'), /no API credits/);
 });
 
 test('a dry run asks X for read access only; write access only with --apply', () => {

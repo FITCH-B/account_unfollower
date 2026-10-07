@@ -75,6 +75,8 @@ export function makeClient(token, {fetcher = fetch, log = console.log} = {}) {
       const reset = Number(r.headers.get('x-rate-limit-reset')) * 1000;
       throw Object.assign(Error('X rate limit reached' + (reset ? ', resets at ' + new Date(reset).toLocaleTimeString() : '')), {rateLimited: true});
     }
+    if (r.status === 402) throw Error('X answered 402 Payment Required: this developer account has no API credits. Add credits in the X developer console (Billing), then run again. Nothing was charged.');
+    if (r.status === 401) throw Error('X answered 401: the token is invalid or expired. Log in again (console tokens last about two hours).');
     if (!r.ok) throw Error(`X answered HTTP ${r.status} for ${method} ${new URL(url).pathname}`);
     return method === 'DELETE' ? r.json().catch(() => ({})) : r.json();
   }
