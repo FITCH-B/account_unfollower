@@ -35,6 +35,19 @@ developer app. One file, no dependencies, Node.js 18 or newer.
 If your app is a confidential client (Web App), also set its secret in the environment:
 `X_CLIENT_SECRET=... node unfollow.mjs ...`. Never put the secret in a file you share.
 
+## If login fails
+
+X's page "You weren't able to give access to the App" usually means one of these:
+
+1. The app's **App permissions** are not **Read and write**, or the change was not saved. The plain run asks for read
+   access only and `--apply` adds `follows.write`, so if the plain run logs in but `--apply` fails, this is it.
+2. The `--client-id` belongs to a different app than the one you configured. Use the **OAuth 2.0 Client ID** under
+   Keys and tokens, not the API key (consumer key).
+3. The callback in the app settings is not exactly `http://127.0.0.1:8723/callback` (or your `--port`).
+4. The app is not attached to a project, or the developer account has no API access or credits yet.
+
+After changing settings, save them and try again; X can take a minute to apply them.
+
 ## Use
 
 ```bash

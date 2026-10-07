@@ -16,7 +16,8 @@ import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 
 const API = 'https://api.x.com/2';
-const SCOPES = 'tweet.read users.read follows.read follows.write';
+// The dry run asks X for read access only; write access is requested only with --apply.
+export const scopesFor = apply => 'tweet.read users.read follows.read' + (apply ? ' follows.write' : '');
 const STATE_FILE = 'unfollow-state.json';
 const HARD_DAILY_MAX = 400;   // X's own limit is 50 unfollows per 15 minutes; bulk churn risks restrictions.
 
@@ -99,19 +100,20 @@ function openBrowser(url) {
   const cmd = process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]] : process.platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]];
   try {spawn(cmd[0], cmd[1], {stdio: 'ignore', detached: true}).unref();} catch {}
 }
-async function login({clientId, port}) {
+async function login({clientId, port, apply}) {
   const verifier = b64url(crypto.randomBytes(32)), state = b64url(crypto.randomBytes(16));
   const challenge = b64url(crypto.createHash('sha256').update(verifier).digest());
   const redirect = `http://127.0.0.1:${port}/callback`;
   const auth = new URL('https://x.com/i/oauth2/authorize');
-  for (const [k, v] of Object.entries({response_type: 'code', client_id: clientId, redirect_uri: redirect, scope: SCOPES, state, code_challenge: challenge, code_challenge_method: 'S256'})) auth.searchParams.set(k, v);
+  for (const [k, v] of Object.entries({response_type: 'code', client_id: clientId, redirect_uri: redirect, scope: scopesFor(apply), state, code_challenge: challenge, code_challenge_method: 'S256'})) auth.searchParams.set(k, v);
   const code = await new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
       const u = new URL(req.url, redirect);
       if (u.pathname !== '/callback') {res.writeHead(404).end();return;}
       const ok = u.searchParams.get('state') === state && u.searchParams.get('code');
+      const why = u.searchParams.get('error');
       res.writeHead(ok ? 200 : 400, {'Content-Type': 'text/plain'}).end(ok ? 'Logged in. You can close this tab and return to the terminal.' : 'Login failed or was cancelled.');
-      server.close();ok ? resolve(u.searchParams.get('code')) : reject(Error('Login failed or was cancelled.'));
+      server.close();ok ? resolve(u.searchParams.get('code')) : reject(Error('Login failed or was cancelled' + (why ? ' (' + why + ')' : '') + '. See "If login fails" in the README.'));
     }).listen(port, '127.0.0.1');
     console.log('\nOpening X to log in. If no browser opens, visit:\n' + auth.href + '\n');
     openBrowser(auth.href);

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {parseArgs, readKeepList, planUnfollows, makeClient} from './unfollow.mjs';
+import {parseArgs, readKeepList, planUnfollows, makeClient, scopesFor} from './unfollow.mjs';
 
 const u = (id, username, extra = {}) => ({id, username, name: username, ...extra});
 
@@ -45,4 +45,9 @@ test('lists page through next_token, send only the bearer token to api.x.com, an
   await assert.rejects(limited.unfollow('1', '2'), e => e.rateLimited === true);
   const denied = makeClient('T', {log: () => {}, fetcher: async () => new Response('', {status: 403})});
   await assert.rejects(denied.list('1', 'followers'), /HTTP 403/);
+});
+
+test('a dry run asks X for read access only; write access only with --apply', () => {
+  assert.equal(scopesFor(false), 'tweet.read users.read follows.read');
+  assert.equal(scopesFor(true), 'tweet.read users.read follows.read follows.write');
 });
