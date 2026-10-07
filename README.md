@@ -5,11 +5,11 @@ developer app. One file, no dependencies, Node.js 18 or newer.
 
 ## What it does
 
-1. You log in to X in your browser (OAuth 2.0 with PKCE). The access token stays in memory for that run only. It is
-   never written to disk and never sent anywhere except `api.x.com`.
+1. It signs in to X with your own app's keys (OAuth 1.0a, from the environment). The keys are never written to disk and are
+   never sent anywhere except `api.x.com`.
 2. It reads your following and followers lists and writes the plan: everyone you follow who does not follow you,
    minus your keep-list. Nothing is unfollowed. Review `unfollow-plan.csv`.
-3. With `--apply` it asks how many to unfollow today (default 50) and how far apart (default 20 to 60 seconds), then unfollows, and stops at the first error or
+3. With `--apply` it asks how many to unfollow now (default 50, never more than 400 a day in total) and how far apart (default 20 to 60 seconds), then unfollows, and stops at the first error or
    rate limit. Progress is saved in `unfollow-state.json`, so you can run it again tomorrow and it continues.
 
 ## Read this first
@@ -22,78 +22,56 @@ developer app. One file, no dependencies, Node.js 18 or newer.
 - **"Follows you" is a snapshot.** The plan reflects the moment you built it. Use `--refresh` to rebuild.
 - X does not say when you followed someone, so there is no "followed in the last N days" filter. Use the keep-list.
 
-## Setup (once)
+## Setup (once): OAuth 1.0a keys, the tested way in
 
-1. Create a developer account and an app at [console.x.com](https://console.x.com).
-2. In the app's **User authentication settings**:
-   - App permissions: **Read and write**
-   - Type of App: **Native App** (a public client, so no client secret is needed)
-   - Callback URI: `http://127.0.0.1:8723/callback` (or your own port, matching `--port`)
-   - Website URL: anything you own
-3. Copy the app's **OAuth 2.0 Client ID**.
+1. Create a developer account and an app at [console.x.com](https://console.x.com), and add API credits (X's API is
+   pay per use; without credits it answers 402).
+2. In the app's **User authentication settings**, set **App permissions** to **Read and write** and save.
+3. In **Keys and tokens > OAuth 1.0 Keys**, copy the **Consumer Key** and **Consumer Secret**, then **Generate** the
+   **Access Token** and **Access Token Secret** (they must show "Read and write"; regenerate them if you changed the
+   permissions afterwards).
 
-If your app is a confidential client (Web App), also set its secret in the environment:
-`X_CLIENT_SECRET=... node unfollow.mjs ...`. Never put the secret in a file you share.
-
-## If login fails
-
-X's page "You weren't able to give access to the App" usually means one of these:
-
-0. The settings were never saved. If the app shows a **Client Secret**, it is a confidential (Web App) client, so the
-   Native App choice and callback did not save: edit User authentication settings again and click Save.
-1. The app's **App permissions** are not **Read and write**, or the change was not saved. The plain run asks for read
-   access only and `--apply` adds `follows.write`, so if the plain run logs in but `--apply` fails, this is it.
-2. The `--client-id` belongs to a different app than the one you configured. Use the **OAuth 2.0 Client ID** under
-   Keys and tokens, not the API key (consumer key).
-3. The callback in the app settings is not exactly `http://127.0.0.1:8723/callback` (or your `--port`).
-4. The app is not attached to a project, or the developer account has no API access or credits yet.
-
-After changing settings, save them and try again; X can take a minute to apply them.
-
-## Login without the browser (your own account)
-
-In the developer console, **Keys and tokens > OAuth 2.0 Keys > Access Token > Generate** makes a token for the
-account that owns the app. Put it in the environment for one command; it is never saved:
+Pass the four keys in the environment for each command. They are never written anywhere:
 
 ```bash
-X_ACCESS_TOKEN=... node unfollow.mjs
-```
-
-The token needs `follows.write` for `--apply`, so the app permissions must be **Read and write** when you generate
-it. Console tokens expire after about two hours; generate a fresh one for each session.
-
-## Login with OAuth 1.0a keys (most reliable for unfollowing)
-
-Console-generated OAuth 2.0 tokens may not include unfollow permission (X then answers 403). The OAuth 1.0 keys work:
-in **Keys and tokens**, copy the **Consumer Key** and **Secret**, and generate the **Access Token** and **Secret** under
-OAuth 1.0 Keys (shown as "Read and write" once the app has that permission). Pass all four in the environment for one
-command; they are never saved:
-
-```bash
-X_CONSUMER_KEY=... X_CONSUMER_SECRET=... X_OAUTH1_TOKEN=... X_OAUTH1_TOKEN_SECRET=... node unfollow.mjs --apply
+export X_CONSUMER_KEY=... X_CONSUMER_SECRET=... X_OAUTH1_TOKEN=... X_OAUTH1_TOKEN_SECRET=...
 ```
 
 These keys do not expire on their own. Treat them like a password: never paste them anywhere public, and regenerate
-them in the console if they leak.
+them in the console if they leak. Close the terminal when you are done so they do not linger in it.
 
 ## Use
 
 ```bash
 # 1. Build the plan. Reads both lists after you confirm the estimate; unfollows nobody.
-node unfollow.mjs --client-id YOUR_CLIENT_ID --keep keep.txt --skip-verified
+node unfollow.mjs --keep keep.txt --skip-verified
 
-# 2. Check unfollow-plan.csv, then start (up to 50 today).
-node unfollow.mjs --client-id YOUR_CLIENT_ID --apply
+# 2. Check unfollow-plan.csv, then start. It asks how many now and how far apart.
+node unfollow.mjs --apply
 
-# 3. Next day: same command continues where it stopped.
-node unfollow.mjs --client-id YOUR_CLIENT_ID --apply
+# 3. Later or tomorrow: the same command continues where it stopped.
+node unfollow.mjs --apply
 ```
+
+## Other ways to log in
+
+- **Console OAuth 2.0 token:** `X_ACCESS_TOKEN=... node unfollow.mjs`. Fine for building the plan, but tokens from the
+  console's Generate button come with read scopes only (`users.read follows.read tweet.read`), so `--apply` gets 403.
+  They also expire after about two hours.
+- **Browser login:** `node unfollow.mjs --client-id YOUR_OAUTH2_CLIENT_ID` (OAuth 2.0 with PKCE). Needs the app set to
+  **Native App** with the callback `http://127.0.0.1:8723/callback` (or your `--port`). X refused this login for some
+  apps during testing with only "You weren't able to give access to the App" and no reason, so prefer the keys above.
+  If it fails, check that the settings saved (a saved Native App shows no OAuth 2.0 Client Secret), that the Client ID
+  is the OAuth 2.0 one from the same app, and that the account has API credits. A confidential (Web App) client also
+  needs `X_CLIENT_SECRET` in the environment.
+
+## Options
 
 | Option | Meaning |
 |---|---|
 | `--keep file.txt` | Never unfollow these. One `@handle`, handle or numeric user id per line; `#` comments. |
 | `--skip-verified` | Never unfollow verified accounts. |
-| `--max-per-day 50` | Unfollows per calendar day (UTC), 1 to 400. Without it, `--apply` asks (Enter keeps 50). |
+| `--max-per-day 50` | How many to unfollow in this run, 1 to 400. Without it, `--apply` asks (Enter keeps 50). Never more than 400 in one calendar day (UTC), counting every run. |
 | `--delay-min 20` `--delay-max 60` | Seconds between unfollows (random in that range). Without them, `--apply` asks: `30` or `20-60` (Enter keeps 20-60). Minimum 5; averaging under 18 s hits X's 50-per-15-minutes limit. |
 | `--refresh` | Read the lists again and rebuild the plan. |
 | `--port 8723` | Local port for the login callback. Must match the app's callback URI. |

@@ -5,7 +5,7 @@
 //
 //   node unfollow.mjs --client-id <id>                 log in, read lists, write the plan (dry run, unfollows nobody)
 //   node unfollow.mjs --client-id <id> --apply         unfollow up to today's cap from the saved plan
-//   options: --keep keep.txt  --skip-verified  --max-per-day 50  --delay-min 20  --delay-max 60  --refresh  --port 8723
+//   options: --keep keep.txt  --skip-verified  --max-per-day 50 (per run; at most 400 a day in total)  --delay-min 20  --delay-max 60  --refresh  --port 8723
 //            --price-per-read 0.01  --yes
 //   with --apply and no --max-per-day / --delay-* flags, it asks for both (Enter keeps 50 and 20-60 s).
 //   a confidential app also needs X_CLIENT_SECRET in the environment.
@@ -214,11 +214,13 @@ async function main() {
 
   // Ask for today's amount and the spacing unless they came as flags (or --yes keeps the defaults).
   const used = s.perDay[today()] || 0;
-  if (!o.yes && !o.asked.count) for (;;) {try {o.maxPerDay = parseCount(await ask(`How many to unfollow today? (${s.todo.length} left in the plan, ${used} done today) [${o.maxPerDay}]: `), o.maxPerDay);break;} catch (e) {console.log(e.message);}}
+  if (!o.yes && !o.asked.count) for (;;) {try {o.maxPerDay = parseCount(await ask(`How many to unfollow now? (${s.todo.length} left in the plan, ${used} already done today) [${o.maxPerDay}]: `), o.maxPerDay);break;} catch (e) {console.log(e.message);}}
   if (!o.yes && !o.asked.delay) for (;;) {try {[o.delayMin, o.delayMax] = parseDelay(await ask(`Seconds between unfollows, as N or MIN-MAX [${o.delayMin}-${o.delayMax}]: `), [o.delayMin, o.delayMax]);break;} catch (e) {console.log(e.message);}}
   if ((o.delayMin + o.delayMax) / 2 < 18) console.log("Note: averaging under 18 s between unfollows will hit X's limit of 50 per 15 minutes; the run stops there and saves progress.");
-  const budget = Math.min(o.maxPerDay - used, s.todo.length);
-  if (budget <= 0) return console.log(s.todo.length ? `Today's cap (${o.maxPerDay}) is used. Run again tomorrow, or choose a higher number.` : 'Plan complete. Nothing left to unfollow.');
+  // The answer (or --max-per-day) is how many to do in this run; HARD_DAILY_MAX still bounds the day's total.
+  const budget = Math.min(o.maxPerDay, s.todo.length, HARD_DAILY_MAX - used);
+  if (!s.todo.length) return console.log('Plan complete. Nothing left to unfollow.');
+  if (budget <= 0) return console.log(`${used} unfollowed today, the daily maximum of ${HARD_DAILY_MAX}. Run again tomorrow.`);
   const span = o.delayMin === o.delayMax ? `${o.delayMin} s` : `${o.delayMin}-${o.delayMax} s`;
   if (!await confirm(`Unfollow ${budget} account(s) now as @${me.username}, ${span} apart?`, o.yes)) return console.log('Stopped.');
   for (let i = 0; i < budget; i++) {
